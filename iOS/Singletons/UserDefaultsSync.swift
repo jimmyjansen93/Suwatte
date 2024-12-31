@@ -8,10 +8,38 @@
 import Foundation
 import Zephyr
 
+extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
+    }
+}
+
 class UDSync {
+    private static var debounceTimer: Timer?
+    private static var pendingSync: Bool = false
+    private static let syncInterval: TimeInterval = 30
+    private static let staticBatchSize = 10
+    private static let dynamicBatchSize = 5
+    
     static func sync() {
-        return
         guard isUserLoggedInToiCloud() else { return }
+
+        pendingSync = true
+        debounceTimer?.invalidate()
+        
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: syncInterval, repeats: false) { _ in
+            Task { @MainActor in
+                if pendingSync {
+                    syncStaticKeys()
+                    syncDynamicKeys()
+                }
+            }
+        }
+    }
+    
+    private static func syncStaticKeys() {
         var keys: [String] = [STTKeys.OpenDefaultCollectionEnabled,
                               STTKeys.OpenDefaultCollection,
                               STTKeys.TileStyle,
@@ -61,27 +89,25 @@ class UDSync {
                               STTKeys.GlobalContentLanguages,
                               STTKeys.GlobalHideNSFW,
                               STTKeys.OverrideSourceRecommendedReadingMode]
+        
+        for batch in keys.chunked(into: staticBatchSize) {
+            Zephyr.sync(keys: Array(batch))
+        }
+    }
 
-        let DynamicKeyPrefixes = ["RUNNER.IRH",
+    private static func syncDynamicKeys() {
+        let dynamicKeyPrefixes = ["RUNNER.IRH",
                                   "RUNNER.PLR",
                                   "RUNNER.BLP",
                                   "RUNNER.SCPP",
                                   "RUNNER.THPO",
                                   "READER.type"]
-
-        func startsWith(_ v: String) -> Bool {
-            DynamicKeyPrefixes.contains(where: { v.starts(with: $0) })
+        let dynamicKeys = UserDefaults.standard.dictionaryRepresentation().keys.filter { key in
+            dynamicKeyPrefixes.first { key.hasPrefix($0) } != nil
         }
-        let DynamicKeys = UserDefaults.standard.dictionaryRepresentation().keys.filter(startsWith(_:))
-        keys.append(contentsOf: DynamicKeys)
-
-        #if DEBUG
-            Zephyr.debugEnabled = true
-        #endif
-        Task { @MainActor [keys] in
-            Zephyr.syncUbiquitousKeyValueStoreOnChange = false // Turns off instantaneous synchronization
-            Zephyr.sync(keys: keys)
-            Zephyr.addKeysToBeMonitored(keys: keys)
+        
+        for batch in dynamicKeys.chunked(into: dynamicBatchSize) {
+            Zephyr.sync(keys: Array(batch))
         }
     }
 

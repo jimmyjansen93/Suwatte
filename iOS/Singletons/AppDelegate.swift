@@ -22,6 +22,10 @@ class STTAppDelegate: NSObject, UIApplicationDelegate {
         // Set Default UD Values
         UserDefaults.standard.register(defaults: STTUserDefaults())
         UDSync.sync()
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleUserDefaultsChange),
+                                               name: UserDefaults.didChangeNotification,
+                                               object: nil)
 
         // Nuke Requests
         let nukeConfig = DataLoader.defaultConfiguration
@@ -64,5 +68,15 @@ class STTAppDelegate: NSObject, UIApplicationDelegate {
         FirebaseApp.configure()
 
         return true
+    }
+    
+    func applicationWillTerminate(_ application: UIApplication) {
+        NotificationCenter.default.removeObserver(self,
+                                                  name: UserDefaults.didChangeNotification,
+                                                  object: nil)
+    }
+
+    @objc private func handleUserDefaultsChange(_ notification: Notification) {
+        UDSync.sync()
     }
 }
